@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Rename player - Baseball Elo{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">PLAYER</p><h1>Rename player</h1></div></div>
+<div class="card form-card"><form method="post"><label for="name">Name</label><input id="name" name="name" value="{{ player.name }}" maxlength="80" required><div class="form-actions"><button class="button" type="submit">Save name</button><a href="{{ url_for('players') }}">Cancel</a></div></form></div>
+{% endblock %}

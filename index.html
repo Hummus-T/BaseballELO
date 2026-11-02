@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Rankings - Baseball Elo{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">LEADERBOARD</p><h1>Elo rankings</h1></div>
+  <a class="button" href="{{ url_for('new_game') }}">Record a game</a>
+</div>
+{% if players %}
+<div class="card table-wrap"><table>
+  <thead><tr><th>#</th><th>Player</th><th>Elo</th></tr></thead>
+  <tbody>{% for player in players %}
+    <tr><td class="muted">{{ loop.index }}</td><td><strong>{{ player.name }}</strong></td><td class="rating">{{ "%.1f"|format(player.elo) }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<div class="empty card"><h2>No players yet</h2><p>Add players before recording a game.</p><a class="button" href="{{ url_for('players') }}">Add players</a></div>{% endif %}
+{% if games %}
+<h2 class="section-title">Recent games</h2>
+<div class="card game-list">{% for game in games %}
+  <div class="game-row"><div><strong>{{ game.team_a_names }}</strong> <span class="muted">vs</span> <strong>{{ game.team_b_names }}</strong><br><span class="muted">{{ game.game_type }} · {{ game.result|replace('_', ' ')|title }}</span></div><a href="{{ url_for('history') }}">Details</a></div>
+{% endfor %}</div>{% endif %}
+{% endblock %}

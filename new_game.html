@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Record game - Baseball Elo{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">RESULT</p><h1>Record a game</h1></div></div>
+{% if players|length < 4 %}<div class="flash error">Add at least four active players for a 2v2 game. A 1v1 game needs two.</div>{% endif %}
+<div class="card form-card"><form method="post">
+  <fieldset><legend>Game format</legend><label><input type="radio" name="game_type" value="1v1" checked> 1v1</label><label><input type="radio" name="game_type" value="2v2"> 2v2</label></fieldset>
+  <div class="teams"><div><label>Team A <span class="muted">(select 1 for 1v1, 2 for 2v2)</span></label><div class="player-picker">{% for player in players %}<label><input class="team-player team-a" type="checkbox" name="team_a" value="{{ player.id }}">{{ player.name }} ({{ "%.0f"|format(player.elo) }})</label>{% endfor %}</div></div>
+  <div><label>Team B</label><div class="player-picker">{% for player in players %}<label><input class="team-player team-b" type="checkbox" name="team_b" value="{{ player.id }}">{{ player.name }} ({{ "%.0f"|format(player.elo) }})</label>{% endfor %}</div></div></div>
+  <fieldset><legend>Result</legend><label><input type="radio" name="result" value="team_a" required> Team A wins</label><label><input type="radio" name="result" value="team_b"> Team B wins</label><label><input type="radio" name="result" value="tie"> Tie</label></fieldset>
+  <p class="form-help">2v2 team ratings use the average of both players’ current Elos. The standard K=32 Elo formula is applied to each player.</p>
+  <button class="button" type="submit">Save game</button>
+</form></div>
+<script>
+  const gameTypeInputs = document.querySelectorAll('input[name="game_type"]');
+  const playerInputs = document.querySelectorAll('.team-player');
+
+  function updatePlayerLimits() {
+    const teamSize = document.querySelector('input[name="game_type"]:checked').value === '2v2' ? 2 : 1;
+    for (const team of ['.team-a', '.team-b']) {
+      const selected = Array.from(document.querySelectorAll(team + ':checked'));
+      for (const input of selected.slice(teamSize)) {
+        input.checked = false;
+      }
+    }
+    for (const input of playerInputs) {
+      const team = input.classList.contains('team-a') ? '.team-a' : '.team-b';
+      const selectedCount = document.querySelectorAll(team + ':checked').length;
+      input.disabled = !input.checked && selectedCount >= teamSize;
+    }
+  }
+
+  for (const input of gameTypeInputs) {
+    input.addEventListener('change', updatePlayerLimits);
+  }
+  for (const input of playerInputs) {
+    input.addEventListener('change', updatePlayerLimits);
+  }
+  updatePlayerLimits();
+</script>
+{% endblock %}
