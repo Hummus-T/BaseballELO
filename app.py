@@ -4,16 +4,20 @@ import math
 import os
 import sqlite3
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
-from flask import Flask, flash, g, redirect, render_template, request, url_for
+from flask import Flask, flash, g, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "baseball_elo.sqlite3"
 STARTING_ELO = 1000.0
 K_FACTOR = 32.0
+DATABASE_SCHEMA_VERSION = 1
+F = TypeVar("F", bound=Callable[..., Any])
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "local-development-secret")
@@ -37,8 +41,16 @@ def close_db(_error: BaseException | None) -> None:
 
 def init_db() -> None:
     db = get_db()
-    db.executescript(
-        """
+    try:
+        db.execute("BEGIN")
+        current_version = db.execute("PRAGMA user_version").fetchone()[0]
+        if current_version > DATABASE_SCHEMA_VERSION:
+            raise RuntimeError(
+                f"Database schema version {current_version} is newer than "
+                f"this application supports ({DATABASE_SCHEMA_VERSION})."
+            )
+        db.execute(
+            """
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -46,7 +58,10 @@ def init_db() -> None:
             active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
-
+            """
+        )
+        db.execute(
+            """
         CREATE TABLE IF NOT EXISTS games (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             game_type TEXT NOT NULL CHECK (game_type IN ('1v1', '2v2')),
@@ -57,7 +72,10 @@ def init_db() -> None:
             team_b_score REAL NOT NULL,
             played_at TEXT NOT NULL
         );
-
+            """
+        )
+        db.execute(
+            """
         CREATE TABLE IF NOT EXISTS game_players (
             game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
             player_id INTEGER NOT NULL REFERENCES players(id),
@@ -67,9 +85,44 @@ def init_db() -> None:
             elo_after REAL NOT NULL,
             PRIMARY KEY (game_id, player_id)
         );
-        """
-    )
-    db.commit()
+            """
+        )
+        db.execute(
+            """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            password_hash TEXT NOT NULL,
+            is_superuser INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        );
+            """
+        )
+        db.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
+
+        superuser_name = os.environ.get("SUPERUSER_USERNAME", "").strip()
+        superuser_password = os.environ.get("SUPERUSER_PASSWORD", "")
+        if superuser_name and superuser_password:
+            db.execute(
+                """
+                INSERT OR IGNORE INTO users
+                    (username, password_hash, is_superuser, created_at)
+                VALUES (?, ?, 1, ?)
+                """,
+                (
+                    superuser_name,
+                    generate_password_hash(superuser_password),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        db.commit()
+    except RuntimeError:
+        db.rollback()
+        raise
+    except sqlite3.Error:
+        db.rollback()
+        raise
 
 
 def calculate_change(team_a_elo: float, team_b_elo: float, result: str) -> tuple[float, float]:
@@ -137,9 +190,194 @@ def parse_player_ids(values: list[str], expected_count: int) -> list[int]:
     return player_ids
 
 
+def login_required(view: F) -> F:
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        if g.get("user") is None:
+            flash("Log in to record games.", "error")
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+
+    return wrapped  # type: ignore[return-value]
+
+
+def superuser_required(view: F) -> F:
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        if g.get("user") is None:
+            flash("Log in as a superuser to access that page.", "error")
+            return redirect(url_for("login", next=request.path))
+        if not g.user["is_superuser"]:
+            flash("Only superusers can perform that action.", "error")
+            return redirect(url_for("index"))
+        return view(*args, **kwargs)
+
+    return wrapped  # type: ignore[return-value]
+
+
+@app.before_request
+def load_logged_in_user() -> None:
+    user_id = session.get("user_id")
+    g.user = None
+    if user_id is not None:
+        g.user = get_db().execute(
+            "SELECT id, username, is_superuser, active FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if g.user is None or not g.user["active"]:
+            session.clear()
+            g.user = None
+
+
 @app.context_processor
 def inject_globals() -> dict[str, Any]:
-    return {"starting_elo": STARTING_ELO, "k_factor": K_FACTOR}
+    return {
+        "starting_elo": STARTING_ELO,
+        "k_factor": K_FACTOR,
+        "current_user": g.get("user"),
+    }
+
+
+@app.route("/register", methods=("GET", "POST"))
+def register():
+    if g.get("user") is not None:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirmation = request.form.get("confirmation", "")
+        if not username or not password:
+            flash("Username and password are required.", "error")
+        elif len(username) > 80:
+            flash("Username must be 80 characters or fewer.", "error")
+        elif password != confirmation:
+            flash("Passwords do not match.", "error")
+        else:
+            try:
+                db = get_db()
+                db.execute(
+                    "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                    (
+                        username,
+                        generate_password_hash(password),
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                db.commit()
+                flash("Account created. You can now log in.", "success")
+                return redirect(url_for("login"))
+            except sqlite3.IntegrityError:
+                flash("That username is already in use.", "error")
+    return render_template("register.html")
+
+
+@app.route("/login", methods=("GET", "POST"))
+def login():
+    if g.get("user") is not None:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        user = get_db().execute(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)
+        ).fetchone()
+        if user is None or not user["active"] or not check_password_hash(
+            user["password_hash"], password
+        ):
+            flash("Invalid username or password.", "error")
+        else:
+            session.clear()
+            session["user_id"] = user["id"]
+            next_url = request.args.get("next", "")
+            if not next_url.startswith("/") or next_url.startswith("//"):
+                next_url = url_for("index")
+            return redirect(next_url)
+    return render_template("login.html")
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    flash("You have been logged out.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/users", methods=("GET", "POST"))
+@superuser_required
+def users():
+    db = get_db()
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        is_superuser = 1 if request.form.get("is_superuser") == "on" else 0
+        if not username or not password:
+            flash("Username and password are required.", "error")
+        elif len(username) > 80:
+            flash("Username must be 80 characters or fewer.", "error")
+        else:
+            try:
+                db.execute(
+                    """
+                    INSERT INTO users (username, password_hash, is_superuser, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        username,
+                        generate_password_hash(password),
+                        is_superuser,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                db.commit()
+                flash("User account created.", "success")
+                return redirect(url_for("users"))
+            except sqlite3.IntegrityError:
+                flash("That username is already in use.", "error")
+    all_users = db.execute(
+        "SELECT id, username, is_superuser, active FROM users ORDER BY username"
+    ).fetchall()
+    return render_template("users.html", users=all_users)
+
+
+@app.post("/users/<int:user_id>/toggle-active")
+@superuser_required
+def toggle_user_active(user_id: int):
+    if user_id == g.user["id"]:
+        flash("You cannot deactivate your own account.", "error")
+        return redirect(url_for("users"))
+    db = get_db()
+    cursor = db.execute(
+        "UPDATE users SET active = CASE active WHEN 1 THEN 0 ELSE 1 END WHERE id = ?",
+        (user_id,),
+    )
+    db.commit()
+    flash(
+        "User status updated." if cursor.rowcount else "User not found.",
+        "success" if cursor.rowcount else "error",
+    )
+    return redirect(url_for("users"))
+
+
+@app.post("/users/<int:user_id>/toggle-superuser")
+@superuser_required
+def toggle_user_superuser(user_id: int):
+    if user_id == g.user["id"]:
+        flash("You cannot change your own superuser status.", "error")
+        return redirect(url_for("users"))
+    db = get_db()
+    cursor = db.execute(
+        """
+        UPDATE users SET is_superuser = CASE is_superuser WHEN 1 THEN 0 ELSE 1 END
+        WHERE id = ?
+        """,
+        (user_id,),
+    )
+    db.commit()
+    flash(
+        "User permissions updated." if cursor.rowcount else "User not found.",
+        "success" if cursor.rowcount else "error",
+    )
+    return redirect(url_for("users"))
 
 
 @app.route("/")
@@ -166,6 +404,9 @@ def index():
 def players():
     db = get_db()
     if request.method == "POST":
+        if g.get("user") is None or not g.user["is_superuser"]:
+            flash("Only superusers can add players.", "error")
+            return redirect(url_for("login") if g.get("user") is None else url_for("players"))
         name = request.form.get("name", "").strip()
         if not name:
             flash("Player name is required.", "error")
@@ -187,6 +428,7 @@ def players():
 
 
 @app.route("/players/<int:player_id>/edit", methods=("GET", "POST"))
+@superuser_required
 def edit_player(player_id: int):
     db = get_db()
     player = db.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
@@ -209,6 +451,7 @@ def edit_player(player_id: int):
 
 
 @app.post("/players/<int:player_id>/deactivate")
+@superuser_required
 def deactivate_player(player_id: int):
     db = get_db()
     cursor = db.execute("UPDATE players SET active = 0 WHERE id = ?", (player_id,))
@@ -221,6 +464,7 @@ def deactivate_player(player_id: int):
 
 
 @app.route("/games/new", methods=("GET", "POST"))
+@login_required
 def new_game():
     db = get_db()
     active_players = db.execute(
@@ -294,6 +538,7 @@ def new_game():
 
 
 @app.post("/games/<int:game_id>/delete")
+@superuser_required
 def delete_game(game_id: int):
     db = get_db()
     game = db.execute("SELECT id FROM games WHERE id = ?", (game_id,)).fetchone()

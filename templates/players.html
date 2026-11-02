@@ -2,8 +2,8 @@
 {% block title %}Players - Baseball Elo{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">ROSTER</p><h1>Players</h1></div></div>
-<div class="card form-card"><form method="post"><label for="name">Add a player</label><div class="inline-form"><input id="name" name="name" maxlength="80" required placeholder="Player name"><button class="button" type="submit">Add player</button></div></form></div>
-<div class="card table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Elo</th><th></th></tr></thead><tbody>
-{% for player in players %}<tr><td><strong>{{ player.name }}</strong></td><td><span class="status {{ 'active' if player.active else 'inactive' }}">{{ 'Active' if player.active else 'Inactive' }}</span></td><td class="rating">{{ "%.1f"|format(player.elo) }}</td><td class="actions"><a href="{{ url_for('edit_player', player_id=player.id) }}">Rename</a>{% if player.active %}<form method="post" action="{{ url_for('deactivate_player', player_id=player.id) }}"><button class="link-button" type="submit">Deactivate</button></form>{% endif %}</td></tr>
-{% else %}<tr><td colspan="4" class="muted">No players yet.</td></tr>{% endfor %}</tbody></table></div>
+{% if current_user and current_user.is_superuser %}<div class="card form-card"><form method="post"><label for="name">Add a player</label><div class="inline-form"><input id="name" name="name" maxlength="80" required placeholder="Player name"><button class="button" type="submit">Add player</button></div></form></div>{% endif %}
+<div class="card table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Elo</th>{% if current_user and current_user.is_superuser %}<th></th>{% endif %}</tr></thead><tbody>
+{% for player in players %}<tr><td><strong>{{ player.name }}</strong></td><td><span class="status {{ 'active' if player.active else 'inactive' }}">{{ 'Active' if player.active else 'Inactive' }}</span></td><td class="rating">{{ "%.1f"|format(player.elo) }}</td>{% if current_user and current_user.is_superuser %}<td class="actions"><a href="{{ url_for('edit_player', player_id=player.id) }}">Rename</a>{% if player.active %}<form method="post" action="{{ url_for('deactivate_player', player_id=player.id) }}"><button class="link-button" type="submit">Deactivate</button></form>{% endif %}</td>{% endif %}</tr>
+{% else %}<tr><td colspan="{{ 4 if current_user and current_user.is_superuser else 3 }}" class="muted">No players yet.</td></tr>{% endfor %}</tbody></table></div>
 {% endblock %}

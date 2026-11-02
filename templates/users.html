@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Users - Baseball Elo{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">ACCESS</p><h1>User accounts</h1></div></div>
+<div class="card form-card"><form method="post">
+  <label for="username">Create user</label><input id="username" name="username" maxlength="80" required placeholder="Username">
+  <label for="password">Temporary password</label><input id="password" name="password" type="password" required>
+  <label><input type="checkbox" name="is_superuser"> Superuser</label>
+  <div class="form-actions"><button class="button" type="submit">Create account</button></div>
+</form></div>
+<div class="card table-wrap"><table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>
+{% for user in users %}<tr><td><strong>{{ user.username }}</strong></td><td>{{ "Superuser" if user.is_superuser else "Regular user" }}</td><td>{{ "Active" if user.active else "Inactive" }}</td><td class="actions">{% if user.id != current_user.id %}<form method="post" action="{{ url_for('toggle_user_superuser', user_id=user.id) }}"><button class="link-button" type="submit">{{ "Remove superuser" if user.is_superuser else "Make superuser" }}</button></form><form method="post" action="{{ url_for('toggle_user_active', user_id=user.id) }}"><button class="link-button danger" type="submit">{{ "Deactivate" if user.active else "Activate" }}</button></form>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+{% endblock %}
