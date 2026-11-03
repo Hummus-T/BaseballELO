@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "baseball_elo.sqlite3"
 STARTING_ELO = 1000.0
 K_FACTOR = 32.0
-DATABASE_SCHEMA_VERSION = 1
+DATABASE_SCHEMA_VERSION = 2
 F = TypeVar("F", bound=Callable[..., Any])
 
 app = Flask(__name__)
@@ -99,6 +99,15 @@ def init_db() -> None:
         );
             """
         )
+        if current_version < 2:
+            columns = {
+                row["name"]
+                for row in db.execute("PRAGMA table_info(games)").fetchall()
+            }
+            if "team_a_runs" not in columns:
+                db.execute("ALTER TABLE games ADD COLUMN team_a_runs INTEGER")
+            if "team_b_runs" not in columns:
+                db.execute("ALTER TABLE games ADD COLUMN team_b_runs INTEGER")
         db.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
 
         superuser_name = os.environ.get("SUPERUSER_USERNAME", "").strip()
@@ -188,6 +197,18 @@ def parse_player_ids(values: list[str], expected_count: int) -> list[int]:
     if len(set(player_ids)) != len(player_ids):
         raise ValueError("A player cannot appear on both teams or twice on one team.")
     return player_ids
+
+
+def parse_game_scores(team_a_value: str, team_b_value: str) -> tuple[int | None, int | None]:
+    team_a_value = team_a_value.strip()
+    team_b_value = team_b_value.strip()
+    if not team_a_value and not team_b_value:
+        return None, None
+    if not team_a_value or not team_b_value:
+        raise ValueError("Enter a score for both teams, or leave both scores blank.")
+    if not team_a_value.isdigit() or not team_b_value.isdigit():
+        raise ValueError("Scores must be whole numbers of zero or greater.")
+    return int(team_a_value), int(team_b_value)
 
 
 def login_required(view: F) -> F:
@@ -482,6 +503,10 @@ def new_game():
             all_ids = team_a_ids + team_b_ids
             if not result in {"team_a", "team_b", "tie"}:
                 raise ValueError("Choose a valid game result.")
+            team_a_runs, team_b_runs = parse_game_scores(
+                request.form.get("team_a_runs", ""),
+                request.form.get("team_b_runs", ""),
+            )
             if set(team_a_ids) & set(team_b_ids):
                 raise ValueError("A player cannot be on both teams.")
             placeholders = ",".join("?" for _ in all_ids)
@@ -499,8 +524,9 @@ def new_game():
             cursor = db.execute(
                 """
                 INSERT INTO games
-                    (game_type, result, team_a_elo, team_b_elo, team_a_score, team_b_score, played_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (game_type, result, team_a_elo, team_b_elo, team_a_score, team_b_score,
+                     team_a_runs, team_b_runs, played_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_type,
@@ -509,6 +535,8 @@ def new_game():
                     team_b_elo,
                     score_a,
                     1 - score_a,
+                    team_a_runs,
+                    team_b_runs,
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -537,6 +565,30 @@ def new_game():
     return render_template("new_game.html", players=active_players)
 
 
+@app.post("/games/<int:game_id>/score")
+@superuser_required
+def edit_game_score(game_id: int):
+    db = get_db()
+    game = db.execute("SELECT id FROM games WHERE id = ?", (game_id,)).fetchone()
+    if game is None:
+        flash("Game not found.", "error")
+        return redirect(url_for("history"))
+    try:
+        team_a_runs, team_b_runs = parse_game_scores(
+            request.form.get("team_a_runs", ""),
+            request.form.get("team_b_runs", ""),
+        )
+        db.execute(
+            "UPDATE games SET team_a_runs = ?, team_b_runs = ? WHERE id = ?",
+            (team_a_runs, team_b_runs, game_id),
+        )
+        db.commit()
+        flash("Game score updated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+    return redirect(url_for("history"))
+
+
 @app.post("/games/<int:game_id>/delete")
 @superuser_required
 def delete_game(game_id: int):
@@ -561,6 +613,7 @@ def history():
     games = get_db().execute(
         """
         SELECT g.id, g.game_type, g.result, g.team_a_elo, g.team_b_elo, g.played_at,
+               g.team_a_runs, g.team_b_runs,
                GROUP_CONCAT(CASE WHEN gp.team = 'A'
                             THEN p.name || ' (' || printf('%+.1f', gp.elo_change) || ')' END, ', ') AS team_a,
                GROUP_CONCAT(CASE WHEN gp.team = 'B'

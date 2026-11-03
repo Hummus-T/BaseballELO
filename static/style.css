@@ -53,4 +53,8 @@ fieldset input { margin-right: 7px; }
 .actions { display: flex; gap: 14px; }
 .link-button { background: none; border: 0; color: #b13d3d; cursor: pointer; font: inherit; padding: 0; }
 .link-button.danger { font-weight: 700; }
+.score-inputs { display: flex; gap: 16px; }
+.score-inputs label { flex: 1; }
+.score-form { align-items: center; display: flex; gap: 5px; margin-top: 8px; }
+.score-form input { max-width: 58px; padding: 5px; }
 @media (max-width: 650px) { .nav { align-items: flex-start; flex-direction: column; gap: 14px; } .nav-links { flex-wrap: wrap; gap: 12px; } .page-heading { align-items: flex-start; flex-direction: column; gap: 16px; } .teams { grid-template-columns: 1fr; } .inline-form { align-items: stretch; flex-direction: column; } h1 { font-size: 2rem; } }
