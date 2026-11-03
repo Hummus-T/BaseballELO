@@ -2,7 +2,7 @@
 {% block title %}Log in - Baseball Elo{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">ACCOUNT</p><h1>Log in</h1></div></div>
-<div class="card form-card"><form method="post">
+<div class="card form-card"><div class="flash error">Do not use a password you use for other sites. This website is not secure.</div><form method="post">
   <label for="username">Username</label><input id="username" name="username" maxlength="80" required autofocus>
   <label for="password">Password</label><input id="password" name="password" type="password" required>
   <div class="form-actions"><button class="button" type="submit">Log in</button><a href="{{ url_for('register') }}">Create an account</a></div>

@@ -3,21 +3,47 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">RESULT</p><h1>Record a game</h1></div></div>
 {% if players|length < 4 %}<div class="flash error">Add at least four active players for a 2v2 game. A 1v1 game needs two.</div>{% endif %}
-<div class="card form-card"><form method="post">
-  <fieldset><legend>Game format</legend><label><input type="radio" name="game_type" value="1v1" checked> 1v1</label><label><input type="radio" name="game_type" value="2v2"> 2v2</label></fieldset>
-  <div class="teams"><div><label>Team A <span class="muted">(select 1 for 1v1, 2 for 2v2)</span></label><div class="player-picker">{% for player in players %}<label><input class="team-player team-a" type="checkbox" name="team_a" value="{{ player.id }}">{{ player.name }} ({{ "%.0f"|format(player.elo) }})</label>{% endfor %}</div></div>
-  <div><label>Team B</label><div class="player-picker">{% for player in players %}<label><input class="team-player team-b" type="checkbox" name="team_b" value="{{ player.id }}">{{ player.name }} ({{ "%.0f"|format(player.elo) }})</label>{% endfor %}</div></div></div>
-  <fieldset><legend>Result</legend><label><input type="radio" name="result" value="team_a" required> Team A wins</label><label><input type="radio" name="result" value="team_b"> Team B wins</label><label><input type="radio" name="result" value="tie"> Tie</label></fieldset>
-  <fieldset><legend>Score <span class="muted">(optional)</span></legend><div class="score-inputs"><label for="team_a_runs">Team A <input id="team_a_runs" name="team_a_runs" type="number" min="0" step="1" value="{{ request.form.get('team_a_runs', '') }}"></label><label for="team_b_runs">Team B <input id="team_b_runs" name="team_b_runs" type="number" min="0" step="1" value="{{ request.form.get('team_b_runs', '') }}"></label></div></fieldset>
-  <p class="form-help">2v2 team ratings use the average of both players’ current Elos. The standard K=32 Elo formula is applied to each player.</p>
-  <button class="button" type="submit">Save game</button>
+<div class="card form-card game-form-card"><form method="post">
+  <section class="form-section">
+    <div class="section-heading"><div><span class="step-number">1</span><div><h2>Choose format</h2><p class="form-help">Select the number of players on each team.</p></div></div></div>
+    <fieldset class="format-options">
+      <label class="choice-card"><input type="radio" name="game_type" value="1v1" {% if request.form.get('game_type', '1v1') == '1v1' %}checked{% endif %}><span><strong>1 vs 1</strong><small>One player per team</small></span></label>
+      <label class="choice-card"><input type="radio" name="game_type" value="2v2" {% if request.form.get('game_type') == '2v2' %}checked{% endif %}><span><strong>2 vs 2</strong><small>Two players per team</small></span></label>
+    </fieldset>
+  </section>
+
+  <section class="form-section">
+    <div class="section-heading"><div><span class="step-number">2</span><div><h2>Pick players</h2><p class="form-help">Choose <strong class="team-size-label">one</strong> player for each team.</p></div></div><span class="selection-status"><span id="team-a-count">0</span> / <span class="team-size">1</span> selected</span></div>
+    <div class="teams">
+      <div class="team-card team-a-card"><div class="team-card-heading"><span class="team-mark team-a-mark">A</span><div><h3>Team A</h3><span class="selection-status"><span id="team-a-count-alt">0</span> / <span class="team-size">1</span></span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-a" type="checkbox" name="team_a" value="{{ player.id }}" {% if player.id|string in request.form.getlist('team_a') %}checked{% endif %}><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}{% if not players %}<p class="muted picker-empty">No active players available.</p>{% endif %}</div></div>
+      <div class="versus-badge">VS</div>
+      <div class="team-card team-b-card"><div class="team-card-heading"><span class="team-mark team-b-mark">B</span><div><h3>Team B</h3><span class="selection-status"><span id="team-b-count">0</span> / <span class="team-size">1</span></span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-b" type="checkbox" name="team_b" value="{{ player.id }}" {% if player.id|string in request.form.getlist('team_b') %}checked{% endif %}><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}{% if not players %}<p class="muted picker-empty">No active players available.</p>{% endif %}</div></div>
+    </div>
+  </section>
+
+  <section class="form-section">
+    <div class="section-heading"><div><span class="step-number">3</span><div><h2>Enter result</h2><p class="form-help">The result determines the Elo update. Score is optional.</p></div></div></div>
+    <fieldset class="result-options">
+      <label class="result-card result-a"><input type="radio" name="result" value="team_a" {% if request.form.get('result') == 'team_a' %}checked{% endif %} required><span><strong>Team A wins</strong><small>Winner</small></span></label>
+      <label class="result-card result-b"><input type="radio" name="result" value="team_b" {% if request.form.get('result') == 'team_b' %}checked{% endif %}><span><strong>Team B wins</strong><small>Winner</small></span></label>
+      <label class="result-card result-tie"><input type="radio" name="result" value="tie" {% if request.form.get('result') == 'tie' %}checked{% endif %}><span><strong>Tie</strong><small>Even result</small></span></label>
+    </fieldset>
+    <div class="score-panel"><div><h3>Final score <span class="muted">(optional)</span></h3><p class="form-help">Scores are saved for reference and do not affect Elo.</p></div><div class="score-inputs"><label for="team_a_runs"><span class="team-mark team-a-mark">A</span><input id="team_a_runs" name="team_a_runs" type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="{{ request.form.get('team_a_runs', '') }}"></label><span class="score-dash">-</span><label for="team_b_runs"><span class="team-mark team-b-mark">B</span><input id="team_b_runs" name="team_b_runs" type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="{{ request.form.get('team_b_runs', '') }}"></label></div></div>
+  </section>
+  <div class="form-submit"><p class="form-help">2v2 ratings use the average of both players’ current Elos.</p><button class="button submit-button" type="submit">Save game <span aria-hidden="true">→</span></button></div>
 </form></div>
 <script>
   const gameTypeInputs = document.querySelectorAll('input[name="game_type"]');
   const playerInputs = document.querySelectorAll('.team-player');
+  const teamSizeLabels = document.querySelectorAll('.team-size');
+  const teamSizeText = document.querySelector('.team-size-label');
 
   function updatePlayerLimits() {
     const teamSize = document.querySelector('input[name="game_type"]:checked').value === '2v2' ? 2 : 1;
+    for (const label of teamSizeLabels) {
+      label.textContent = teamSize;
+    }
+    teamSizeText.textContent = teamSize === 1 ? 'one' : 'two';
     for (const team of ['.team-a', '.team-b']) {
       const selected = Array.from(document.querySelectorAll(team + ':checked'));
       for (const input of selected.slice(teamSize)) {
@@ -29,6 +55,9 @@
       const selectedCount = document.querySelectorAll(team + ':checked').length;
       input.disabled = !input.checked && selectedCount >= teamSize;
     }
+    document.querySelector('#team-a-count').textContent = document.querySelectorAll('.team-a:checked').length;
+    document.querySelector('#team-a-count-alt').textContent = document.querySelectorAll('.team-a:checked').length;
+    document.querySelector('#team-b-count').textContent = document.querySelectorAll('.team-b:checked').length;
   }
 
   for (const input of gameTypeInputs) {
