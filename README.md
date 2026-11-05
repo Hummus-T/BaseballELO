@@ -7,6 +7,7 @@ A small Flask app for tracking Elo ratings in 1v1 and 2v2 baseball games.
 - Add and rename players; new players start at Elo 1000.
 - Record 1v1 or 2v2 games, including ties.
 - Optionally record team scores; scores do not affect Elo ratings.
+- Start games with optional per-at-bat tracking, where hits and walks score one point.
 - Calculate ratings with standard Elo scoring and `K = 32`.
 - Use the average of both teammates' ratings as a 2v2 team rating.
 - View current rankings and a history of games with each player's rating change.
@@ -14,6 +15,7 @@ A small Flask app for tracking Elo ratings in 1v1 and 2v2 baseball games.
 - Deactivate players without deleting their recorded history.
 - Register regular accounts that can record games, while superusers manage players and game history.
 - Superusers can edit recorded game scores.
+- Completed games show their at-bats; superusers can edit at-bats and recalculate the game.
 - Store data in SQLite by default, with the database path configurable for future hosting.
 
 ## Run locally

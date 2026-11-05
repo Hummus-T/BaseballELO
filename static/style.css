@@ -100,5 +100,37 @@ fieldset input { margin-right: 7px; }
 .score-inputs label { flex: 1; }
 .score-form { align-items: center; display: flex; gap: 5px; margin-top: 8px; }
 .score-form input { max-width: 58px; padding: 5px; }
+.game-teams { align-items: center; display: flex; gap: 18px; justify-content: center; padding-bottom: 20px; }
+.game-teams > div { align-items: center; display: flex; gap: 9px; }
+.tracking-score { align-items: center; display: flex; font-size: 2rem; gap: 22px; justify-content: center; padding: 8px 0 24px; }
+.tracking-score div { align-items: center; display: flex; gap: 10px; }
+.tracking-score .team-mark { font-size: .75rem; }
+.at-bat-form { align-items: end; display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr) auto; }
+.at-bat-form label { margin: 0; }
+.at-bat-form select, .at-bat-edit-form select { background: #fff; padding: 9px; }
+.at-bat-list { margin-top: 24px; }
+.at-bat-edit-form { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
+.at-bat-edit-form select { max-width: 180px; }
+.start-game-card { margin: 0 auto; max-width: 900px; padding: 0; overflow: hidden; }
+.game-format { background: #fbfcfe; border-bottom: 1px solid #edf0f5; margin: 0; padding: 24px 34px; }
+.game-format legend { margin-bottom: 13px; }
+.format-choice { display: flex; gap: 12px; }
+.format-choice label { align-items: center; border: 1px solid #d6deeb; border-radius: 9px; cursor: pointer; display: flex; gap: 10px; margin: 0; min-width: 145px; padding: 11px 14px; }
+.format-choice label:has(input:checked) { background: #f0f5ff; border-color: #3166c7; box-shadow: 0 0 0 2px #3166c71a; }
+.format-choice input { accent-color: #3166c7; margin: 0; }
+.format-choice span { display: flex; flex-direction: column; gap: 2px; }
+.format-choice small, .team-limit { color: #77839a; font-size: .76rem; font-weight: 400; }
+.start-game-card .teams { align-items: center; padding: 28px 34px; }
+.team-select { min-width: 0; }
+.team-select-heading { align-items: center; display: flex; gap: 10px; margin-bottom: 11px; }
+.team-select-heading label { font-size: 1rem; margin: 0 0 2px; }
+.team-select-heading > div { display: flex; flex-direction: column; }
+.start-game-card .player-picker { max-height: 250px; }
+.start-game-card .player-option { min-height: 45px; }
+.start-game-footer { align-items: center; background: #fbfcfe; border-top: 1px solid #edf0f5; display: flex; justify-content: space-between; padding: 20px 34px; }
+.start-game-footer .form-help { margin: 0; }
+.start-game-footer .form-actions { margin: 0; }
+.start-game-footer .button span { font-size: 1.05rem; margin-left: 5px; }
 @media (max-width: 700px) { .form-section { padding: 24px 20px; } .teams { grid-template-columns: 1fr; } .versus-badge { display: none; } .form-submit { align-items: stretch; flex-direction: column; gap: 16px; padding: 20px; } }
-@media (max-width: 650px) { .nav { align-items: flex-start; flex-direction: column; gap: 14px; } .nav-links { flex-wrap: wrap; gap: 12px; } .page-heading { align-items: flex-start; flex-direction: column; gap: 16px; } .inline-form { align-items: stretch; flex-direction: column; } h1 { font-size: 2rem; } .format-options, .result-options { grid-template-columns: 1fr; } .score-panel { align-items: flex-start; flex-direction: column; gap: 16px; } }
+@media (max-width: 800px) { .at-bat-form { grid-template-columns: repeat(2, 1fr); } .at-bat-form .button { grid-column: span 2; } .start-game-card .teams { padding: 24px 20px; } .start-game-footer { align-items: flex-start; flex-direction: column; gap: 14px; padding: 20px; } }
+@media (max-width: 650px) { .nav { align-items: flex-start; flex-direction: column; gap: 14px; } .nav-links { flex-wrap: wrap; gap: 12px; } .page-heading { align-items: flex-start; flex-direction: column; gap: 16px; } .inline-form { align-items: stretch; flex-direction: column; } h1 { font-size: 2rem; } .format-options, .result-options { grid-template-columns: 1fr; } .score-panel { align-items: flex-start; flex-direction: column; gap: 16px; } .at-bat-form { grid-template-columns: 1fr; } .at-bat-form .button { grid-column: auto; } .game-teams { align-items: flex-start; flex-direction: column; } .format-choice { flex-direction: column; } .format-choice label { min-width: 0; } }

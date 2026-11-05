@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Start game - Baseball Elo{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">NEW GAME</p><h1>Start a game</h1></div></div>
+<div class="card form-card start-game-card"><form method="post">
+  <fieldset class="game-format"><legend>Game format</legend><div class="format-choice"><label><input type="radio" name="game_type" value="1v1" checked><span><strong>1v1</strong><small>One player per team</small></span></label><label><input type="radio" name="game_type" value="2v2"><span><strong>2v2</strong><small>Two players per team</small></span></label></div></fieldset>
+  <div class="teams"><div class="team-select"><div class="team-select-heading"><span class="team-mark team-a-mark">A</span><div><label>Team A</label><span class="team-limit">Select <strong class="team-size">1</strong> player</span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-a" type="checkbox" name="team_a" value="{{ player.id }}"><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}</div></div><div class="versus-badge">VS</div><div class="team-select"><div class="team-select-heading"><span class="team-mark team-b-mark">B</span><div><label>Team B</label><span class="team-limit">Select <strong class="team-size">1</strong> player</span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-b" type="checkbox" name="team_b" value="{{ player.id }}"><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}</div></div></div>
+  <div class="start-game-footer"><p class="form-help">Track at-bats as you play, or skip tracking to enter the result manually.</p><div class="form-actions"><button class="button" type="submit">Start tracking <span aria-hidden="true">→</span></button><a href="{{ url_for('new_game', manual=1) }}">Skip tracking</a></div></div>
+</form></div>
+<script>
+  const gameTypeInputs = document.querySelectorAll('input[name="game_type"]');
+  const playerInputs = document.querySelectorAll('.team-player');
+  const teamSizeLabels = document.querySelectorAll('.team-size');
+  function updatePlayerLimits() {
+    const teamSize = document.querySelector('input[name="game_type"]:checked').value === '2v2' ? 2 : 1;
+    teamSizeLabels.forEach(label => label.textContent = teamSize);
+    for (const team of ['.team-a', '.team-b']) {
+      const selected = Array.from(document.querySelectorAll(team + ':checked'));
+      for (const input of selected.slice(teamSize)) input.checked = false;
+    }
+    for (const input of playerInputs) {
+      const team = input.classList.contains('team-a') ? '.team-a' : '.team-b';
+      input.disabled = !input.checked && document.querySelectorAll(team + ':checked').length >= teamSize;
+    }
+  }
+  gameTypeInputs.forEach(input => input.addEventListener('change', updatePlayerLimits));
+  playerInputs.forEach(input => input.addEventListener('change', updatePlayerLimits));
+  updatePlayerLimits();
+</script>
+{% endblock %}

@@ -11,7 +11,7 @@
     <a class="brand" href="{{ url_for('index') }}">Baseball Elo</a>
     <div class="nav-links">
       <a href="{{ url_for('index') }}">Rankings</a>
-      <a href="{{ url_for('new_game') }}">Record game</a>
+      <a href="{{ url_for('start_game') }}">Start game</a>
       {% if current_user and current_user.is_superuser %}<a href="{{ url_for('players') }}">Players</a><a href="{{ url_for('users') }}">Users</a>{% endif %}
       <a href="{{ url_for('history') }}">History</a>
       {% if current_user %}<span class="nav-user">{{ current_user.username }}</span><form method="post" action="{{ url_for('logout') }}"><button class="nav-button" type="submit">Log out</button></form>{% else %}<a href="{{ url_for('login') }}">Log in</a><a href="{{ url_for('register') }}">Register</a>{% endif %}

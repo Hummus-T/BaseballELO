@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATABASE = BASE_DIR / "baseball_elo.sqlite3"
 STARTING_ELO = 1000.0
 K_FACTOR = 32.0
-DATABASE_SCHEMA_VERSION = 2
+DATABASE_SCHEMA_VERSION = 3
 F = TypeVar("F", bound=Callable[..., Any])
 
 app = Flask(__name__)
@@ -108,6 +108,49 @@ def init_db() -> None:
                 db.execute("ALTER TABLE games ADD COLUMN team_a_runs INTEGER")
             if "team_b_runs" not in columns:
                 db.execute("ALTER TABLE games ADD COLUMN team_b_runs INTEGER")
+        if current_version < 3:
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tracked_games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    game_type TEXT NOT NULL CHECK (game_type IN ('1v1', '2v2')),
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tracked_game_players (
+                    tracked_game_id INTEGER NOT NULL REFERENCES tracked_games(id)
+                        ON DELETE CASCADE,
+                    player_id INTEGER NOT NULL REFERENCES players(id),
+                    team TEXT NOT NULL CHECK (team IN ('A', 'B')),
+                    PRIMARY KEY (tracked_game_id, player_id)
+                )
+                """
+            )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS at_bats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tracked_game_id INTEGER REFERENCES tracked_games(id)
+                        ON DELETE CASCADE,
+                    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
+                    pitching_team TEXT NOT NULL CHECK (pitching_team IN ('A', 'B')),
+                    pitcher_id INTEGER NOT NULL REFERENCES players(id),
+                    batter_id INTEGER NOT NULL REFERENCES players(id),
+                    outcome TEXT NOT NULL CHECK (
+                        outcome IN ('Hit', 'K', 'Walk', 'Walk (K)', 'Fielded out')
+                    ),
+                    created_at TEXT NOT NULL,
+                    CHECK (
+                        (tracked_game_id IS NOT NULL AND game_id IS NULL)
+                        OR (tracked_game_id IS NULL AND game_id IS NOT NULL)
+                    )
+                )
+                """
+            )
         db.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
 
         superuser_name = os.environ.get("SUPERUSER_USERNAME", "").strip()
@@ -209,6 +252,52 @@ def parse_game_scores(team_a_value: str, team_b_value: str) -> tuple[int | None,
     if not team_a_value.isdigit() or not team_b_value.isdigit():
         raise ValueError("Scores must be whole numbers of zero or greater.")
     return int(team_a_value), int(team_b_value)
+
+
+AT_BAT_OUTCOMES = ("Hit", "K", "Walk", "Walk (K)", "Fielded out")
+SCORING_OUTCOMES = {"Hit", "Walk"}
+
+
+def get_tracked_game(db: sqlite3.Connection, tracked_game_id: int) -> sqlite3.Row | None:
+    return db.execute(
+        "SELECT * FROM tracked_games WHERE id = ?", (tracked_game_id,)
+    ).fetchone()
+
+
+def tracked_game_accessible(tracked_game: sqlite3.Row) -> bool:
+    return tracked_game["user_id"] == g.user["id"] or bool(g.user["is_superuser"])
+
+
+def validate_at_bat(
+    db: sqlite3.Connection,
+    tracked_game_id: int,
+    pitching_team: str,
+    pitcher_id: str,
+    batter_id: str,
+    outcome: str,
+) -> tuple[int, int, str]:
+    if pitching_team not in {"A", "B"} or outcome not in AT_BAT_OUTCOMES:
+        raise ValueError("Choose a valid pitching team and at-bat outcome.")
+    try:
+        pitcher = int(pitcher_id)
+        batter = int(batter_id)
+    except ValueError as error:
+        raise ValueError("Choose a pitcher and batter.") from error
+    participants = db.execute(
+        """
+        SELECT player_id, team FROM tracked_game_players
+        WHERE tracked_game_id = ? AND player_id IN (?, ?)
+        """,
+        (tracked_game_id, pitcher, batter),
+    ).fetchall()
+    teams = {row["player_id"]: row["team"] for row in participants}
+    if (
+        pitcher == batter
+        or teams.get(pitcher) != pitching_team
+        or teams.get(batter) != ("B" if pitching_team == "A" else "A")
+    ):
+        raise ValueError("The pitcher must be from the pitching team and batter from the opposing team.")
+    return pitcher, batter, outcome
 
 
 def login_required(view: F) -> F:
@@ -484,9 +573,444 @@ def deactivate_player(player_id: int):
     return redirect(url_for("players"))
 
 
+@app.route("/games/start", methods=("GET", "POST"))
+@login_required
+def start_game():
+    db = get_db()
+    active_players = db.execute(
+        "SELECT id, name, elo FROM players WHERE active = 1 ORDER BY name"
+    ).fetchall()
+    if request.method == "POST":
+        game_type = request.form.get("game_type", "1v1")
+        team_size = 1 if game_type == "1v1" else 2 if game_type == "2v2" else 0
+        try:
+            if team_size == 0:
+                raise ValueError("Choose a valid game format.")
+            team_a_ids = parse_player_ids(request.form.getlist("team_a"), team_size)
+            team_b_ids = parse_player_ids(request.form.getlist("team_b"), team_size)
+            if set(team_a_ids) & set(team_b_ids):
+                raise ValueError("A player cannot be on both teams.")
+            all_ids = team_a_ids + team_b_ids
+            placeholders = ",".join("?" for _ in all_ids)
+            found = db.execute(
+                f"SELECT id FROM players WHERE active = 1 AND id IN ({placeholders})",
+                all_ids,
+            ).fetchall()
+            if len(found) != len(all_ids):
+                raise ValueError("All selected players must be active.")
+            cursor = db.execute(
+                "INSERT INTO tracked_games (user_id, game_type, created_at) VALUES (?, ?, ?)",
+                (g.user["id"], game_type, datetime.now(timezone.utc).isoformat()),
+            )
+            tracked_game_id = cursor.lastrowid
+            for player_id in team_a_ids:
+                db.execute(
+                    "INSERT INTO tracked_game_players VALUES (?, ?, 'A')",
+                    (tracked_game_id, player_id),
+                )
+            for player_id in team_b_ids:
+                db.execute(
+                    "INSERT INTO tracked_game_players VALUES (?, ?, 'B')",
+                    (tracked_game_id, player_id),
+                )
+            db.commit()
+            return redirect(url_for("track_game", tracked_game_id=tracked_game_id))
+        except ValueError as error:
+            flash(str(error), "error")
+    return render_template("start_game.html", players=active_players)
+
+
+@app.route("/games/<int:tracked_game_id>/track", methods=("GET", "POST"))
+@login_required
+def track_game(tracked_game_id: int):
+    db = get_db()
+    tracked_game = get_tracked_game(db, tracked_game_id)
+    if tracked_game is None:
+        flash("Tracked game not found.", "error")
+        return redirect(url_for("index"))
+    if not tracked_game_accessible(tracked_game):
+        flash("You cannot access that tracked game.", "error")
+        return redirect(url_for("index"))
+    participants = db.execute(
+        """
+        SELECT p.id, p.name, tgp.team
+        FROM tracked_game_players tgp
+        JOIN players p ON p.id = tgp.player_id
+        WHERE tgp.tracked_game_id = ?
+        ORDER BY tgp.team, p.name
+        """,
+        (tracked_game_id,),
+    ).fetchall()
+    participants = [dict(row) for row in participants]
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "add_at_bat":
+            try:
+                pitcher, batter, outcome = validate_at_bat(
+                    db,
+                    tracked_game_id,
+                    request.form.get("pitching_team", ""),
+                    request.form.get("pitcher_id", ""),
+                    request.form.get("batter_id", ""),
+                    request.form.get("outcome", ""),
+                )
+                db.execute(
+                    """
+                    INSERT INTO at_bats
+                        (tracked_game_id, pitching_team, pitcher_id, batter_id, outcome, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tracked_game_id,
+                        request.form["pitching_team"],
+                        pitcher,
+                        batter,
+                        outcome,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                db.commit()
+                flash("At-bat added.", "success")
+            except ValueError as error:
+                flash(str(error), "error")
+        elif action == "end_game":
+            return end_tracked_game(tracked_game_id)
+        return redirect(url_for("track_game", tracked_game_id=tracked_game_id))
+    at_bats = db.execute(
+        """
+        SELECT a.*, pitcher.name AS pitcher_name, batter.name AS batter_name
+        FROM at_bats a
+        JOIN players pitcher ON pitcher.id = a.pitcher_id
+        JOIN players batter ON batter.id = a.batter_id
+        WHERE a.tracked_game_id = ?
+        ORDER BY a.id
+        """,
+        (tracked_game_id,),
+    ).fetchall()
+    return render_template(
+        "track_game.html",
+        tracked_game=tracked_game,
+        participants=participants,
+        at_bats=at_bats,
+        outcomes=AT_BAT_OUTCOMES,
+    )
+
+
+@app.post("/tracked-games/<int:tracked_game_id>/at-bats/<int:at_bat_id>/edit")
+@login_required
+def edit_tracked_at_bat(tracked_game_id: int, at_bat_id: int):
+    db = get_db()
+    tracked_game = get_tracked_game(db, tracked_game_id)
+    if tracked_game is None or not tracked_game_accessible(tracked_game):
+        flash("You cannot access that tracked game.", "error")
+        return redirect(url_for("index"))
+    try:
+        pitcher, batter, outcome = validate_at_bat(
+            db,
+            tracked_game_id,
+            request.form.get("pitching_team", ""),
+            request.form.get("pitcher_id", ""),
+            request.form.get("batter_id", ""),
+            request.form.get("outcome", ""),
+        )
+        cursor = db.execute(
+            """
+            UPDATE at_bats
+            SET pitching_team = ?, pitcher_id = ?, batter_id = ?, outcome = ?
+            WHERE id = ? AND tracked_game_id = ?
+            """,
+            (
+                request.form["pitching_team"],
+                pitcher,
+                batter,
+                outcome,
+                at_bat_id,
+                tracked_game_id,
+            ),
+        )
+        if not cursor.rowcount:
+            raise ValueError("At-bat not found.")
+        db.commit()
+        flash("At-bat updated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+    return redirect(url_for("track_game", tracked_game_id=tracked_game_id))
+
+
+@app.post("/tracked-games/<int:tracked_game_id>/at-bats/<int:at_bat_id>/delete")
+@login_required
+def delete_tracked_at_bat(tracked_game_id: int, at_bat_id: int):
+    db = get_db()
+    tracked_game = get_tracked_game(db, tracked_game_id)
+    if tracked_game is None or not tracked_game_accessible(tracked_game):
+        flash("You cannot access that tracked game.", "error")
+        return redirect(url_for("index"))
+    db.execute(
+        "DELETE FROM at_bats WHERE id = ? AND tracked_game_id = ?",
+        (at_bat_id, tracked_game_id),
+    )
+    db.commit()
+    flash("At-bat removed.", "success")
+    return redirect(url_for("track_game", tracked_game_id=tracked_game_id))
+
+
+def validate_completed_at_bat(
+    db: sqlite3.Connection,
+    game_id: int,
+    pitching_team: str,
+    pitcher_id: str,
+    batter_id: str,
+    outcome: str,
+) -> tuple[int, int, str]:
+    if pitching_team not in {"A", "B"} or outcome not in AT_BAT_OUTCOMES:
+        raise ValueError("Choose a valid pitching team and at-bat outcome.")
+    try:
+        pitcher = int(pitcher_id)
+        batter = int(batter_id)
+    except ValueError as error:
+        raise ValueError("Choose a pitcher and batter.") from error
+    participants = db.execute(
+        """
+        SELECT player_id, team FROM game_players
+        WHERE game_id = ? AND player_id IN (?, ?)
+        """,
+        (game_id, pitcher, batter),
+    ).fetchall()
+    teams = {row["player_id"]: row["team"] for row in participants}
+    if (
+        pitcher == batter
+        or teams.get(pitcher) != pitching_team
+        or teams.get(batter) != ("B" if pitching_team == "A" else "A")
+    ):
+        raise ValueError("The pitcher must be from the pitching team and batter from the opposing team.")
+    return pitcher, batter, outcome
+
+
+def refresh_completed_game_from_at_bats(db: sqlite3.Connection, game_id: int) -> None:
+    at_bats = db.execute(
+        "SELECT pitching_team, outcome FROM at_bats WHERE game_id = ?",
+        (game_id,),
+    ).fetchall()
+    team_a_runs = sum(
+        1 for at_bat in at_bats
+        if at_bat["pitching_team"] == "B" and at_bat["outcome"] in SCORING_OUTCOMES
+    )
+    team_b_runs = sum(
+        1 for at_bat in at_bats
+        if at_bat["pitching_team"] == "A" and at_bat["outcome"] in SCORING_OUTCOMES
+    )
+    result = (
+        "team_a" if team_a_runs > team_b_runs
+        else "team_b" if team_b_runs > team_a_runs
+        else "tie"
+    )
+    db.execute(
+        """
+        UPDATE games
+        SET result = ?, team_a_score = ?, team_b_score = ?,
+            team_a_runs = ?, team_b_runs = ?
+        WHERE id = ?
+        """,
+        (
+            result,
+            {"team_a": 1.0, "team_b": 0.0, "tie": 0.5}[result],
+            {"team_a": 0.0, "team_b": 1.0, "tie": 0.5}[result],
+            team_a_runs,
+            team_b_runs,
+            game_id,
+        ),
+    )
+    recalculate_ratings(db)
+
+
+@app.route("/games/<int:game_id>")
+def game_detail(game_id: int):
+    db = get_db()
+    game = db.execute(
+        """
+        SELECT g.*, GROUP_CONCAT(CASE WHEN gp.team = 'A' THEN p.name END, ', ') AS team_a,
+               GROUP_CONCAT(CASE WHEN gp.team = 'B' THEN p.name END, ', ') AS team_b
+        FROM games g
+        JOIN game_players gp ON gp.game_id = g.id
+        JOIN players p ON p.id = gp.player_id
+        WHERE g.id = ?
+        GROUP BY g.id
+        """,
+        (game_id,),
+    ).fetchone()
+    if game is None:
+        flash("Game not found.", "error")
+        return redirect(url_for("history"))
+    at_bats = db.execute(
+        """
+        SELECT a.*, pitcher.name AS pitcher_name, batter.name AS batter_name
+        FROM at_bats a
+        JOIN players pitcher ON pitcher.id = a.pitcher_id
+        JOIN players batter ON batter.id = a.batter_id
+        WHERE a.game_id = ?
+        ORDER BY a.id
+        """,
+        (game_id,),
+    ).fetchall()
+    participants = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT gp.player_id AS id, gp.team, p.name
+            FROM game_players gp JOIN players p ON p.id = gp.player_id
+            WHERE gp.game_id = ? ORDER BY gp.team, p.name
+            """,
+            (game_id,),
+        ).fetchall()
+    ]
+    return render_template(
+        "game_detail.html",
+        game=game,
+        at_bats=at_bats,
+        participants=participants,
+        outcomes=AT_BAT_OUTCOMES,
+    )
+
+
+@app.post("/games/<int:game_id>/at-bats/<int:at_bat_id>/edit")
+@superuser_required
+def edit_completed_at_bat(game_id: int, at_bat_id: int):
+    db = get_db()
+    try:
+        pitcher, batter, outcome = validate_completed_at_bat(
+            db,
+            game_id,
+            request.form.get("pitching_team", ""),
+            request.form.get("pitcher_id", ""),
+            request.form.get("batter_id", ""),
+            request.form.get("outcome", ""),
+        )
+        cursor = db.execute(
+            """
+            UPDATE at_bats
+            SET pitching_team = ?, pitcher_id = ?, batter_id = ?, outcome = ?
+            WHERE id = ? AND game_id = ?
+            """,
+            (
+                request.form["pitching_team"],
+                pitcher,
+                batter,
+                outcome,
+                at_bat_id,
+                game_id,
+            ),
+        )
+        if not cursor.rowcount:
+            raise ValueError("At-bat not found.")
+        refresh_completed_game_from_at_bats(db, game_id)
+        db.commit()
+        flash("At-bat updated; score, winner, and Elo were recalculated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+    return redirect(url_for("game_detail", game_id=game_id))
+
+
+@app.post("/games/<int:game_id>/at-bats/<int:at_bat_id>/delete")
+@superuser_required
+def delete_completed_at_bat(game_id: int, at_bat_id: int):
+    db = get_db()
+    db.execute("DELETE FROM at_bats WHERE id = ? AND game_id = ?", (at_bat_id, game_id))
+    refresh_completed_game_from_at_bats(db, game_id)
+    db.commit()
+    flash("At-bat removed; score, winner, and Elo were recalculated.", "success")
+    return redirect(url_for("game_detail", game_id=game_id))
+
+
+def end_tracked_game(tracked_game_id: int):
+    db = get_db()
+    tracked_game = get_tracked_game(db, tracked_game_id)
+    if tracked_game is None:
+        flash("Tracked game not found.", "error")
+        return redirect(url_for("index"))
+    if not tracked_game_accessible(tracked_game):
+        flash("You cannot access that tracked game.", "error")
+        return redirect(url_for("index"))
+    try:
+        players = db.execute(
+            """
+            SELECT player_id, team, p.elo
+            FROM tracked_game_players tgp
+            JOIN players p ON p.id = tgp.player_id
+            WHERE tracked_game_id = ?
+            ORDER BY team, player_id
+            """,
+            (tracked_game_id,),
+        ).fetchall()
+        team_a = [row for row in players if row["team"] == "A"]
+        team_b = [row for row in players if row["team"] == "B"]
+        at_bats = db.execute(
+            "SELECT id, pitching_team, outcome FROM at_bats WHERE tracked_game_id = ? ORDER BY id",
+            (tracked_game_id,),
+        ).fetchall()
+        team_a_runs = sum(
+            1 for at_bat in at_bats
+            if at_bat["pitching_team"] == "B" and at_bat["outcome"] in SCORING_OUTCOMES
+        )
+        team_b_runs = sum(
+            1 for at_bat in at_bats
+            if at_bat["pitching_team"] == "A" and at_bat["outcome"] in SCORING_OUTCOMES
+        )
+        result = (
+            "team_a" if team_a_runs > team_b_runs
+            else "team_b" if team_b_runs > team_a_runs
+            else "tie"
+        )
+        team_a_elo = sum(row["elo"] for row in team_a) / len(team_a)
+        team_b_elo = sum(row["elo"] for row in team_b) / len(team_b)
+        change_a, change_b = calculate_change(team_a_elo, team_b_elo, result)
+        score_a = {"team_a": 1.0, "team_b": 0.0, "tie": 0.5}[result]
+        cursor = db.execute(
+            """
+            INSERT INTO games
+                (game_type, result, team_a_elo, team_b_elo, team_a_score, team_b_score,
+                 team_a_runs, team_b_runs, played_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tracked_game["game_type"], result, team_a_elo, team_b_elo,
+                score_a, 1 - score_a, team_a_runs, team_b_runs,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        game_id = cursor.lastrowid
+        for team, team_players, change in (
+            ("A", team_a, change_a),
+            ("B", team_b, change_b),
+        ):
+            for player in team_players:
+                after = player["elo"] + change
+                db.execute(
+                    "INSERT INTO game_players VALUES (?, ?, ?, ?, ?, ?)",
+                    (game_id, player["player_id"], team, player["elo"], change, after),
+                )
+                db.execute(
+                    "UPDATE players SET elo = ? WHERE id = ?",
+                    (after, player["player_id"]),
+                )
+        db.execute(
+            "UPDATE at_bats SET game_id = ?, tracked_game_id = NULL WHERE tracked_game_id = ?",
+            (game_id, tracked_game_id),
+        )
+        db.execute("DELETE FROM tracked_games WHERE id = ?", (tracked_game_id,))
+        db.commit()
+        flash("Game ended and Elos updated.", "success")
+        return redirect(url_for("history"))
+    except (sqlite3.Error, ZeroDivisionError):
+        db.rollback()
+        flash("The tracked game could not be ended.", "error")
+        return redirect(url_for("track_game", tracked_game_id=tracked_game_id))
+
+
 @app.route("/games/new", methods=("GET", "POST"))
 @login_required
 def new_game():
+    if request.method == "GET" and request.args.get("manual") != "1":
+        return redirect(url_for("start_game"))
     db = get_db()
     active_players = db.execute(
         "SELECT id, name, elo FROM players WHERE active = 1 ORDER BY name"
