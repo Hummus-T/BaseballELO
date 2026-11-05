@@ -1152,6 +1152,186 @@ def history():
     return render_template("history.html", games=games)
 
 
+@app.route("/stats")
+def stats():
+    db = get_db()
+    players = db.execute(
+        "SELECT id, name FROM players ORDER BY name"
+    ).fetchall()
+    player_filter = request.args.get("player", "")
+    role_filter = request.args.get("role", "all")
+    matchup_filter = request.args.get("matchup", "")
+    try:
+        selected_player = int(player_filter) if player_filter else None
+        selected_matchup = int(matchup_filter) if matchup_filter else None
+    except ValueError:
+        selected_player = None
+        selected_matchup = None
+
+    at_bats = db.execute(
+        """
+        SELECT a.id, a.pitching_team, a.pitcher_id, a.batter_id, a.outcome,
+               a.game_id, a.created_at, pitcher.name AS pitcher_name,
+               batter.name AS batter_name, g.played_at,
+               GROUP_CONCAT(CASE WHEN gp.team = 'A' THEN p.name END, ', ') AS team_a,
+               GROUP_CONCAT(CASE WHEN gp.team = 'B' THEN p.name END, ', ') AS team_b
+        FROM at_bats a
+        JOIN games g ON g.id = a.game_id
+        JOIN players pitcher ON pitcher.id = a.pitcher_id
+        JOIN players batter ON batter.id = a.batter_id
+        JOIN game_players gp ON gp.game_id = g.id
+        JOIN players p ON p.id = gp.player_id
+        WHERE a.game_id IS NOT NULL
+        GROUP BY a.id
+        ORDER BY a.id DESC
+        """
+    ).fetchall()
+    filtered_at_bats = []
+    for at_bat in at_bats:
+        matches_player = (
+            selected_player is None
+            or selected_player in (at_bat["pitcher_id"], at_bat["batter_id"])
+        )
+        matches_role = (
+            role_filter == "all"
+            or (
+                role_filter == "pitching"
+                and (selected_player is None or selected_player == at_bat["pitcher_id"])
+            )
+            or (
+                role_filter == "batting"
+                and (selected_player is None or selected_player == at_bat["batter_id"])
+            )
+        )
+        matches_matchup = (
+            selected_matchup is None
+            or selected_matchup in (at_bat["pitcher_id"], at_bat["batter_id"])
+        )
+        if matches_player and matches_role and matches_matchup:
+            filtered_at_bats.append(at_bat)
+
+    total = len(filtered_at_bats)
+    outcome_counts = {outcome: 0 for outcome in AT_BAT_OUTCOMES}
+    for at_bat in filtered_at_bats:
+        outcome_counts[at_bat["outcome"]] += 1
+    pie_colors = ("#3166c7", "#4a86d8", "#55a982", "#d29a3d", "#9a6ac0")
+    pie_segments = []
+    start_angle = 0.0
+    for index, outcome in enumerate(AT_BAT_OUTCOMES):
+        end_angle = start_angle + (
+            outcome_counts[outcome] / total * 360 if total else 0
+        )
+        pie_segments.append(
+            {
+                "outcome": outcome,
+                "count": outcome_counts[outcome],
+                "color": pie_colors[index],
+                "start": start_angle,
+                "end": end_angle,
+            }
+        )
+        start_angle = end_angle
+    pie_gradient = (
+        "conic-gradient("
+        + ", ".join(
+            f"{segment['color']} {segment['start']:.2f}deg {segment['end']:.2f}deg"
+            for segment in pie_segments
+        )
+        + ")"
+        if total
+        else "conic-gradient(#edf0f5 0deg 360deg)"
+    )
+
+    batting_stats = []
+    pitching_stats = []
+    for player in players:
+        player_at_bats = [
+            at_bat for at_bat in filtered_at_bats
+            if player["id"] in (at_bat["pitcher_id"], at_bat["batter_id"])
+        ]
+        batting = [at_bat for at_bat in player_at_bats if at_bat["batter_id"] == player["id"]]
+        pitching = [at_bat for at_bat in player_at_bats if at_bat["pitcher_id"] == player["id"]]
+        batting_outcomes = {
+            outcome: sum(at_bat["outcome"] == outcome for at_bat in batting)
+            for outcome in AT_BAT_OUTCOMES
+        }
+        pitching_outcomes = {
+            outcome: sum(at_bat["outcome"] == outcome for at_bat in pitching)
+            for outcome in AT_BAT_OUTCOMES
+        }
+        hits = sum(at_bat["outcome"] == "Hit" for at_bat in batting)
+        walks = sum(at_bat["outcome"] == "Walk" for at_bat in batting)
+        strikeouts = sum(at_bat["outcome"] == "K" for at_bat in pitching)
+        if batting:
+            batting_stats.append(
+                {
+                    "name": player["name"],
+                    "at_bats": len(batting),
+                    "hits": hits,
+                    "walks": walks,
+                    "points": hits + walks,
+                    "outcomes": batting_outcomes,
+                    "outs": sum(
+                        at_bat["outcome"] in {"K", "Fielded out", "Walk (K)"}
+                        for at_bat in batting
+                    ),
+                }
+            )
+        if pitching:
+            points_allowed = sum(
+                at_bat["outcome"] in SCORING_OUTCOMES
+                for at_bat in pitching
+            )
+            pitching_stats.append(
+                {
+                    "name": player["name"],
+                    "faced": len(pitching),
+                    "points_allowed": points_allowed,
+                    "points_per_at_bat": points_allowed / len(pitching),
+                    "strikeouts": strikeouts,
+                    "hits_allowed": sum(
+                        at_bat["outcome"] == "Hit" for at_bat in pitching
+                    ),
+                    "walks_allowed": sum(
+                        at_bat["outcome"] in {"Walk", "Walk (K)"}
+                        for at_bat in pitching
+                    ),
+                    "outs": sum(
+                        at_bat["outcome"] in {"K", "Fielded out"}
+                        for at_bat in pitching
+                    ),
+                    "outcomes": pitching_outcomes,
+                }
+            )
+    batting_stats.sort(key=lambda stat: (stat["points"], stat["hits"], stat["at_bats"]), reverse=True)
+    pitching_stats.sort(key=lambda stat: (stat["strikeouts"], stat["outs"], -stat["hits_allowed"]))
+
+    matchup_counts = {}
+    for at_bat in filtered_at_bats:
+        key = (at_bat["pitcher_name"], at_bat["batter_name"])
+        matchup_counts[key] = matchup_counts.get(key, 0) + 1
+    matchups = [
+        {"pitcher": key[0], "batter": key[1], "at_bats": count}
+        for key, count in matchup_counts.items()
+    ]
+    matchups.sort(key=lambda matchup: matchup["at_bats"], reverse=True)
+    return render_template(
+        "stats.html",
+        players=players,
+        at_bats=filtered_at_bats,
+        total=total,
+        outcome_counts=outcome_counts,
+        pie_segments=pie_segments,
+        pie_gradient=pie_gradient,
+        batting_stats=batting_stats,
+        pitching_stats=pitching_stats,
+        matchups=matchups[:10],
+        player_filter=player_filter,
+        role_filter=role_filter,
+        matchup_filter=matchup_filter,
+    )
+
+
 with app.app_context():
     init_db()
 

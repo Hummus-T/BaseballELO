@@ -16,6 +16,8 @@ A small Flask app for tracking Elo ratings in 1v1 and 2v2 baseball games.
 - Register regular accounts that can record games, while superusers manage players and game history.
 - Superusers can edit recorded game scores.
 - Completed games show their at-bats; superusers can edit at-bats and recalculate the game.
+- View at-bat statistics with player, role, and matchup filters.
+- Compare all five at-bat outcomes in stacked batting and pitching leaderboards.
 - Store data in SQLite by default, with the database path configurable for future hosting.
 
 ## Run locally
