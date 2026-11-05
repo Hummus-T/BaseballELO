@@ -910,6 +910,46 @@ def edit_completed_at_bat(game_id: int, at_bat_id: int):
     return redirect(url_for("game_detail", game_id=game_id))
 
 
+@app.post("/games/<int:game_id>/at-bats/add")
+@superuser_required
+def add_completed_at_bat(game_id: int):
+    db = get_db()
+    game = db.execute("SELECT id FROM games WHERE id = ?", (game_id,)).fetchone()
+    if game is None:
+        flash("Game not found.", "error")
+        return redirect(url_for("history"))
+    try:
+        pitcher, batter, outcome = validate_completed_at_bat(
+            db,
+            game_id,
+            request.form.get("pitching_team", ""),
+            request.form.get("pitcher_id", ""),
+            request.form.get("batter_id", ""),
+            request.form.get("outcome", ""),
+        )
+        db.execute(
+            """
+            INSERT INTO at_bats
+                (game_id, pitching_team, pitcher_id, batter_id, outcome, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                game_id,
+                request.form["pitching_team"],
+                pitcher,
+                batter,
+                outcome,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        refresh_completed_game_from_at_bats(db, game_id)
+        db.commit()
+        flash("At-bat added; score, winner, and Elo were recalculated.", "success")
+    except ValueError as error:
+        flash(str(error), "error")
+    return redirect(url_for("game_detail", game_id=game_id))
+
+
 @app.post("/games/<int:game_id>/at-bats/<int:at_bat_id>/delete")
 @superuser_required
 def delete_completed_at_bat(game_id: int, at_bat_id: int):

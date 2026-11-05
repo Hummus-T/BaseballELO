@@ -157,6 +157,9 @@ fieldset input { margin-right: 7px; }
 .at-bat-form label { margin: 0; }
 .at-bat-form select, .at-bat-edit-form select { background: #fff; padding: 9px; }
 .at-bat-list { margin-top: 24px; }
+.completed-at-bat-add { margin-top: 24px; }
+.completed-at-bat-add h2 { font-size: 1.15rem; margin: 0 0 4px; }
+.completed-at-bat-add .form-help { margin-bottom: 18px; }
 .at-bat-edit-form { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
 .at-bat-edit-form select { max-width: 180px; }
 .start-game-card { margin: 0 auto; max-width: 900px; padding: 0; overflow: hidden; }
