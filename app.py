@@ -242,6 +242,15 @@ def parse_player_ids(values: list[str], expected_count: int) -> list[int]:
     return player_ids
 
 
+def display_team_name(names: str | None, game_type: str) -> str:
+    players = [name.strip() for name in (names or "").split(",") if name.strip()]
+    if not players:
+        return "Team"
+    if game_type == "1v1":
+        return players[0]
+    return " & ".join(player[:3] for player in players)
+
+
 def parse_game_scores(team_a_value: str, team_b_value: str) -> tuple[int | None, int | None]:
     team_a_value = team_a_value.strip()
     team_b_value = team_b_value.strip()
@@ -507,7 +516,17 @@ def index():
         LIMIT 5
         """
     ).fetchall()
-    return render_template("index.html", players=players, games=games)
+    display_games = []
+    for game in games:
+        game_data = dict(game)
+        game_data["team_a_names"] = display_team_name(
+            game["team_a_names"], game["game_type"]
+        )
+        game_data["team_b_names"] = display_team_name(
+            game["team_b_names"], game["game_type"]
+        )
+        display_games.append(game_data)
+    return render_template("index.html", players=players, games=display_games)
 
 
 @app.route("/players", methods=("GET", "POST"))
@@ -641,6 +660,14 @@ def track_game(tracked_game_id: int):
         """,
         (tracked_game_id,),
     ).fetchall()
+    team_a_name = display_team_name(
+        ", ".join(player["name"] for player in participants if player["team"] == "A"),
+        tracked_game["game_type"],
+    )
+    team_b_name = display_team_name(
+        ", ".join(player["name"] for player in participants if player["team"] == "B"),
+        tracked_game["game_type"],
+    )
     participants = [dict(row) for row in participants]
     if request.method == "POST":
         action = request.form.get("action")
@@ -687,12 +714,18 @@ def track_game(tracked_game_id: int):
         """,
         (tracked_game_id,),
     ).fetchall()
+    initial_pitching_team = (
+        "B" if at_bats and at_bats[-1]["pitching_team"] == "A" else "A"
+    )
     return render_template(
         "track_game.html",
         tracked_game=tracked_game,
         participants=participants,
         at_bats=at_bats,
         outcomes=AT_BAT_OUTCOMES,
+        team_a_name=team_a_name,
+        team_b_name=team_b_name,
+        initial_pitching_team=initial_pitching_team,
     )
 
 
@@ -841,6 +874,8 @@ def game_detail(game_id: int):
     if game is None:
         flash("Game not found.", "error")
         return redirect(url_for("history"))
+    team_a_name = display_team_name(game["team_a"], game["game_type"])
+    team_b_name = display_team_name(game["team_b"], game["game_type"])
     at_bats = db.execute(
         """
         SELECT a.*, pitcher.name AS pitcher_name, batter.name AS batter_name
@@ -869,6 +904,8 @@ def game_detail(game_id: int):
         at_bats=at_bats,
         participants=participants,
         outcomes=AT_BAT_OUTCOMES,
+        team_a_name=team_a_name,
+        team_b_name=team_b_name,
     )
 
 
@@ -1189,7 +1226,25 @@ def history():
         ORDER BY g.id DESC
         """
     ).fetchall()
-    return render_template("history.html", games=games)
+    display_games = []
+    for game in games:
+        game_data = dict(game)
+        game_data["team_a"] = display_team_name(
+            ", ".join(
+                name.rsplit(" (", 1)[0]
+                for name in (game["team_a"] or "").split(", ")
+            ),
+            game["game_type"],
+        )
+        game_data["team_b"] = display_team_name(
+            ", ".join(
+                name.rsplit(" (", 1)[0]
+                for name in (game["team_b"] or "").split(", ")
+            ),
+            game["game_type"],
+        )
+        display_games.append(game_data)
+    return render_template("history.html", games=display_games)
 
 
 @app.route("/stats")

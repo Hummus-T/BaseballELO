@@ -3,11 +3,12 @@
 body { margin: 0; }
 .nav { align-items: center; background: #172033; color: #fff; display: flex; justify-content: space-between; padding: 18px max(24px, calc((100% - 1040px) / 2)); }
 .brand { color: #fff; font-size: 1.15rem; font-weight: 800; text-decoration: none; }
-.nav-links { display: flex; gap: 20px; }
+.nav-links { align-items: center; display: flex; gap: 20px; }
 .nav-links a, a { color: #3166c7; text-decoration: none; }
 .nav-links a { color: #dce5f6; font-size: .92rem; }
 .nav-user { color: #aebbd2; font-size: .92rem; }
-.nav-button { background: none; border: 0; color: #dce5f6; cursor: pointer; font: inherit; font-size: .92rem; padding: 0; }
+.nav-links form { margin: 0; }
+.nav-button { background: none; border: 0; color: #dce5f6; cursor: pointer; font: inherit; font-size: .92rem; min-height: 0; padding: 0; }
 .container { margin: 0 auto; max-width: 1040px; padding: 42px 24px 70px; }
 .page-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 28px; }
 h1 { font-size: 2.4rem; letter-spacing: -.04em; margin: 4px 0 0; }
@@ -23,6 +24,9 @@ tr:last-child td { border-bottom: 0; }
 .muted { color: #77839a; font-size: .9rem; }
 .button { background: #3166c7; border: 0; border-radius: 7px; color: #fff; cursor: pointer; display: inline-block; font: inherit; font-weight: 700; padding: 11px 16px; }
 .button:hover { background: #2555ac; }
+.end-game-form { margin: -10px 0 24px; width: 100%; }
+.end-game-button { background: #b13d3d; box-shadow: 0 4px 12px #b13d3d2e; font-size: 1.05rem; padding: 15px 20px; width: 100%; }
+.end-game-button:hover { background: #922f2f; }
 .section-title { margin: 42px 0 14px; }
 .game-list { padding: 0 20px; }
 .game-row { align-items: center; border-bottom: 1px solid #edf0f5; display: flex; justify-content: space-between; padding: 17px 0; }
@@ -197,6 +201,11 @@ fieldset input { margin-right: 7px; }
 @media (max-width: 700px) { .form-section { padding: 24px 20px; } .teams { grid-template-columns: 1fr; } .versus-badge { display: none; } .form-submit { align-items: stretch; flex-direction: column; gap: 16px; padding: 20px; } }
 @media (max-width: 800px) { .at-bat-form { grid-template-columns: repeat(2, 1fr); } .at-bat-form .button { grid-column: span 2; } .start-game-card .teams { padding: 24px 20px; } .start-game-footer { align-items: flex-start; flex-direction: column; gap: 14px; padding: 20px; } }
 @media (max-width: 800px) { .stats-filters form { grid-template-columns: 1fr 1fr; } .stats-filters .button { width: 100%; } .stats-summary { grid-template-columns: repeat(2, 1fr); } .stats-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .nav { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .brand { flex-shrink: 0; }
+  .nav-links { flex-wrap: wrap; gap: 10px 18px; width: 100%; }
+}
 @media (max-width: 650px) { .nav { align-items: flex-start; flex-direction: column; gap: 14px; } .nav-links { flex-wrap: wrap; gap: 12px; } .page-heading { align-items: flex-start; flex-direction: column; gap: 16px; } .inline-form { align-items: stretch; flex-direction: column; } h1 { font-size: 2rem; } .format-options, .result-options { grid-template-columns: 1fr; } .score-panel { align-items: flex-start; flex-direction: column; gap: 16px; } .at-bat-form { grid-template-columns: 1fr; } .at-bat-form .button { grid-column: auto; } .game-teams { align-items: flex-start; flex-direction: column; } .format-choice { flex-direction: column; } .format-choice label { min-width: 0; } .stats-filters form, .stats-summary { grid-template-columns: 1fr; } .stats-filters .button { width: auto; } }
 
 /* Compact layouts for phones and narrow browser windows. */

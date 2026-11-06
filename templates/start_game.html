@@ -4,7 +4,7 @@
 <div class="page-heading"><div><p class="eyebrow">NEW GAME</p><h1>Start a game</h1></div></div>
 <div class="card form-card start-game-card"><form method="post">
   <fieldset class="game-format"><legend>Game format</legend><div class="format-choice"><label><input type="radio" name="game_type" value="1v1" checked><span><strong>1v1</strong><small>One player per team</small></span></label><label><input type="radio" name="game_type" value="2v2"><span><strong>2v2</strong><small>Two players per team</small></span></label></div></fieldset>
-  <div class="teams"><div class="team-select"><div class="team-select-heading"><span class="team-mark team-a-mark">A</span><div><label>Team A</label><span class="team-limit">Select <strong class="team-size">1</strong> player</span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-a" type="checkbox" name="team_a" value="{{ player.id }}"><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}</div></div><div class="versus-badge">VS</div><div class="team-select"><div class="team-select-heading"><span class="team-mark team-b-mark">B</span><div><label>Team B</label><span class="team-limit">Select <strong class="team-size">1</strong> player</span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-b" type="checkbox" name="team_b" value="{{ player.id }}"><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}</div></div></div>
+  <div class="teams"><div class="team-select"><div class="team-select-heading"><span class="team-mark team-a-mark">A</span><div><label class="team-name team-a-name">Select team A</label><span class="team-limit">Select <strong class="team-size">1</strong> player</span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-a" type="checkbox" name="team_a" value="{{ player.id }}"><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}</div></div><div class="versus-badge">VS</div><div class="team-select"><div class="team-select-heading"><span class="team-mark team-b-mark">B</span><div><label class="team-name team-b-name">Select team B</label><span class="team-limit">Select <strong class="team-size">1</strong> player</span></div></div><div class="player-picker">{% for player in players %}<label class="player-option"><input class="team-player team-b" type="checkbox" name="team_b" value="{{ player.id }}"><span class="player-option-name">{{ player.name }}</span><span class="player-elo">{{ "%.0f"|format(player.elo) }}</span></label>{% endfor %}</div></div></div>
   <div class="start-game-footer"><p class="form-help">Track at-bats as you play, or skip tracking to enter the result manually.</p><div class="form-actions"><button class="button" type="submit">Start tracking <span aria-hidden="true">→</span></button><a href="{{ url_for('new_game', manual=1) }}">Skip tracking</a></div></div>
 </form></div>
 <script>
@@ -18,10 +18,20 @@
       const selected = Array.from(document.querySelectorAll(team + ':checked'));
       for (const input of selected.slice(teamSize)) input.checked = false;
     }
+    const selectedA = new Set(Array.from(document.querySelectorAll('.team-a:checked')).map(input => input.value));
+    const selectedB = new Set(Array.from(document.querySelectorAll('.team-b:checked')).map(input => input.value));
     for (const input of playerInputs) {
       const team = input.classList.contains('team-a') ? '.team-a' : '.team-b';
-      input.disabled = !input.checked && document.querySelectorAll(team + ':checked').length >= teamSize;
+      const selectedByOtherTeam = input.classList.contains('team-a') ? selectedB.has(input.value) : selectedA.has(input.value);
+      input.disabled = selectedByOtherTeam || (!input.checked && document.querySelectorAll(team + ':checked').length >= teamSize);
     }
+    document.querySelector('.team-a-name').textContent = teamLabel('.team-a:checked', teamSize, 'team A');
+    document.querySelector('.team-b-name').textContent = teamLabel('.team-b:checked', teamSize, 'team B');
+  }
+  function teamLabel(selector, teamSize, fallback) {
+    const names = Array.from(document.querySelectorAll(selector)).map(input => input.parentElement.querySelector('.player-option-name').textContent.trim());
+    if (!names.length) return 'Select ' + fallback;
+    return teamSize === 1 ? names[0] : names.map(name => name.slice(0, 3)).join(' & ');
   }
   gameTypeInputs.forEach(input => input.addEventListener('change', updatePlayerLimits));
   playerInputs.forEach(input => input.addEventListener('change', updatePlayerLimits));

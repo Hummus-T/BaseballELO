@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Track game - Baseball Elo{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">LIVE GAME</p><h1>Track game</h1><p class="muted">Add each at-bat as it happens. Hits and walks score one point.</p></div><form method="post"><button class="button" name="action" value="end_game" type="submit" onclick="return confirm('End this game and calculate the final score?');">End game</button></form></div>
+<div class="page-heading"><div><p class="eyebrow">LIVE GAME</p><h1>Track game</h1><p class="muted">Add each at-bat as it happens. Hits and walks score one point.</p></div></div>
+<form class="end-game-form" method="post"><button class="button end-game-button" name="action" value="end_game" type="submit" onclick="return confirm('End this game and calculate the final score?');">End Game (Required to Save)</button></form>
 <div class="card form-card">
-  <div class="game-teams"><div><span class="team-mark team-a-mark">A</span><strong>{% for player in participants if player.team == 'A' %}{{ player.name }}{% if not loop.last %}, {% endif %}{% endfor %}</strong></div><span class="versus-badge">VS</span><div><span class="team-mark team-b-mark">B</span><strong>{% for player in participants if player.team == 'B' %}{{ player.name }}{% if not loop.last %}, {% endif %}{% endfor %}</strong></div></div>
-  <div class="tracking-score"><div><span class="team-mark team-a-mark">A</span><strong id="score-a">{{ at_bats|selectattr('pitching_team', 'equalto', 'B')|selectattr('outcome', 'in', ['Hit', 'Walk'])|list|length }}</strong></div><span>-</span><div><strong id="score-b">{{ at_bats|selectattr('pitching_team', 'equalto', 'A')|selectattr('outcome', 'in', ['Hit', 'Walk'])|list|length }}</strong><span class="team-mark team-b-mark">B</span></div></div>
+  <div class="game-teams"><div><span class="team-mark team-a-mark">A</span><strong>{{ team_a_name }}</strong></div><span class="versus-badge">VS</span><div><strong>{{ team_b_name }}</strong><span class="team-mark team-b-mark">B</span></div></div>
+  <div class="tracking-score"><div><span class="team-mark team-a-mark">A</span><strong>{{ team_a_name }}</strong><strong id="score-a">{{ at_bats|selectattr('pitching_team', 'equalto', 'B')|selectattr('outcome', 'in', ['Hit', 'Walk'])|list|length }}</strong></div><span>-</span><div><strong id="score-b">{{ at_bats|selectattr('pitching_team', 'equalto', 'A')|selectattr('outcome', 'in', ['Hit', 'Walk'])|list|length }}</strong><strong>{{ team_b_name }}</strong><span class="team-mark team-b-mark">B</span></div></div>
   <hr>
   <h2>Add at-bat</h2>
   <form method="post" class="at-bat-form">
     <input type="hidden" name="action" value="add_at_bat">
-    <label>Pitching team<select name="pitching_team" id="pitching_team" required><option value="A">Team A</option><option value="B">Team B</option></select></label>
+    <label>Pitching team<select name="pitching_team" id="pitching_team" required><option value="A" {% if initial_pitching_team == 'A' %}selected{% endif %}>{{ team_a_name }}</option><option value="B" {% if initial_pitching_team == 'B' %}selected{% endif %}>{{ team_b_name }}</option></select></label>
     <label>Pitcher<select name="pitcher_id" id="pitcher_id" required></select></label>
     <label>Batter<select name="batter_id" id="batter_id" required></select></label>
-    <label>Outcome<select name="outcome" required>{% for outcome in outcomes %}<option value="{{ outcome }}">{{ outcome }}</option>{% endfor %}</select></label>
+    <label>Outcome<select name="outcome" required>{% for outcome in outcomes %}<option value="{{ outcome }}" {% if outcome == 'K' %}selected{% endif %}>{{ outcome }}</option>{% endfor %}</select></label>
     <button class="button" type="submit">Add at-bat</button>
   </form>
 </div>
